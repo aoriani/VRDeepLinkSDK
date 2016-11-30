@@ -1,15 +1,15 @@
 /**
  * Copyright (c) 2016-present, Facebook, Inc. All rights reserved.
-
+ * <p>
  * You are hereby granted a non-exclusive, worldwide, royalty-free license to use,
  * copy, modify, and distribute this software in source code or binary form for use
  * in connection with the web services and APIs provided by Facebook.
-
+ * <p>
  * As with any software that integrates with the Facebook platform, your use of
  * this software is subject to the Facebook Developer Principles and Policies
  * [http://developers.facebook.com/policy/]. This copyright notice shall be
  * included in all copies or substantial portions of the software.
-
+ * <p>
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
  * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
@@ -24,129 +24,109 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
+import android.text.TextUtils;
 
 public class VRDeepLinkHelper {
-  private static final String OCULUS_CINEMA_PACKAGE_NAME = "com.oculus.cinema";
-  private static final String OCULUS_PHOTO_PACKAGE_NAME = "com.oculus.oculus360photos";
+    private static final String OCULUS_CINEMA_PACKAGE_NAME = "com.oculus.cinema";
+    private static final String OCULUS_PHOTO_PACKAGE_NAME = "com.oculus.oculus360photos";
 
-  private static final String URI_SCHEME_OCULUS = "oculus";
-  private static final String URI_MEDIA_TYPE_VIDEO = "video";
-  private static final String URI_MEDIA_TYPE_PHOTO = "photo";
-  private static final String URI_MEDIA_SOURCE_FB = "fb";
+    private static final String URI_SCHEME_OCULUS = "oculus";
+    private static final String URI_MEDIA_TYPE_VIDEO = "video";
+    private static final String URI_MEDIA_TYPE_PHOTO = "photo";
+    private static final String URI_MEDIA_SOURCE_FB = "fb";
 
-  private static final String URI_SCHEME_HTTPS = "https";
-  private static final String URI_FB_AUTHORITY = "m.facebook.com";
+    private static final String URI_SCHEME_HTTPS = "https";
+    private static final String URI_FB_AUTHORITY = "m.facebook.com";
 
-  public static enum MediaType {
-    VIDEO,
-    PHOTO
-  }
+    public enum MediaType {
+        VIDEO(OCULUS_CINEMA_PACKAGE_NAME, URI_MEDIA_TYPE_VIDEO),
+        PHOTO(OCULUS_PHOTO_PACKAGE_NAME, URI_MEDIA_TYPE_PHOTO);
 
-  public static class VRDeepLinkParam {
-    public final String mediaFbId;
-    public final MediaType mediaType;
+        private final String mOculusPackage;
+        private final String mMediaPath;
 
-    public VRDeepLinkParam(
-            String videoFbId,
-            MediaType mediaType) {
-      this.mediaFbId = videoFbId;
-      this.mediaType = mediaType;
-    }
-  }
+        MediaType(@NonNull String oculusPackage, @NonNull String mediaPath) {
+            mOculusPackage = oculusPackage;
+            mMediaPath = mediaPath;
+        }
 
-  /**
-   * Helper function to create an intent to launch 360 photos/videos in Oculus Video/360Photo app.
-   * If such app doesn't exist, we'll fallback to FB4A or m-site depending on application availability.
-   *
-   * @param context an android context
-   * @param param A VRDeepLinkParam object that contains the fbid of the deeplink media and its type
-   * @return an Intent object to launch the deeplinked content.
-   */
-  public static Intent createDeepLinkIntent(Context context, VRDeepLinkParam param) {
-    if (param == null ||
-            isStringNullOrEmpty(param.mediaFbId)) {
-      return null;
+        @NonNull
+        String getOculusPackage() {
+            return mOculusPackage;
+        }
+
+        @NonNull
+        String getMediaPath() {
+            return mMediaPath;
+        }
     }
 
-    if (IsVideoDeepLink(param)) {
-      return createDeepLinkIntentForVideoContent(context, param);
+    /**
+     * Helper function to create an intent to launch 360 photos/videos in Oculus Video/360Photo app.
+     * If such app doesn't exist, we'll fallback to FB4A or m-site depending on application availability.
+     *
+     * @param context an android context
+     * @param mediaFbId the fbid of the deeplink media
+     * @param mediaType the media type
+     * @return an Intent object to launch the deeplinked content.
+     */
+    @Nullable
+    public static Intent createDeepLinkIntent(@NonNull Context context, @NonNull String mediaFbId, @NonNull MediaType mediaType) {
+        if (TextUtils.isEmpty(mediaFbId)) {
+            return null;
+        }
+
+        if (hasAppInstalled(context, mediaType.getOculusPackage())) {
+            return createIntentForOculusApp(mediaFbId, mediaType);
+        } else {
+            return createIntentForFacebookApp(mediaFbId);
+        }
     }
-    return createDeepLinkIntentForPhotoContent(context, param);
-  }
 
-  private static Intent createDeepLinkIntentForVideoContent(Context context, VRDeepLinkParam param) {
-    if (hasAppInstalled(context, OCULUS_CINEMA_PACKAGE_NAME)) {
-      return createIntentForOculusApp(param);
+    /**
+     * Checks whether an application is installed.
+     *
+     * @param context an android context
+     * @param packageName the android package name of the application.
+     * @return whether an app with the given package name is installed
+     */
+    @VisibleForTesting
+    static boolean hasAppInstalled(@NonNull Context context, @NonNull String packageName) {
+        try {
+            context.getPackageManager().getPackageInfo(packageName, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
     }
-    return createIntentForFacebookApp(param);
-  }
 
-  private static Intent createDeepLinkIntentForPhotoContent(Context context, VRDeepLinkParam param) {
-    if (hasAppInstalled(context, OCULUS_PHOTO_PACKAGE_NAME)) {
-      return createIntentForOculusApp(param);
+    @VisibleForTesting
+    static Intent createIntentForOculusApp(@NonNull String mediaFbId, @NonNull MediaType mediaType) {
+        final String packageName = mediaType.getOculusPackage();
+        final String mediaTypePath = mediaType.getMediaPath();
+        final Intent intent = new Intent(Intent.ACTION_VIEW);
+        final Uri.Builder builder = new Uri.Builder();
+        builder.scheme(URI_SCHEME_OCULUS)
+                .authority(mediaTypePath)
+                .appendPath(URI_MEDIA_SOURCE_FB)
+                .appendPath(mediaFbId);
+        intent.setPackage(packageName);
+        intent.setData(builder.build());
+        return intent;
     }
-    return createIntentForFacebookApp(param);
-  }
 
-  /**
-   * Checks whether any of the support oculus app is installed.
-   *
-   * @param context an android context
-   * @param packageName an android app package name
-   * @return whether an app with the given package name is installed
-   */
-  @VisibleForTesting
-  static boolean hasAppInstalled(Context context, String packageName) {
-    try {
-      context.getPackageManager().getPackageInfo(packageName, 0);
-      return true;
-    } catch (PackageManager.NameNotFoundException e) {
-      return false;
+    @VisibleForTesting
+    static Intent createIntentForFacebookApp(@NonNull String mediaFbId) {
+        final Intent intent = new Intent(Intent.ACTION_VIEW);
+        final Uri.Builder builder = new Uri.Builder();
+        builder.scheme(URI_SCHEME_HTTPS)
+                .authority(URI_FB_AUTHORITY)
+                .appendPath(mediaFbId);
+        intent.setData(builder.build());
+        return intent;
     }
-  }
 
-  @VisibleForTesting
-  static boolean IsVideoDeepLink(VRDeepLinkParam param) {
-    return param != null && MediaType.VIDEO.equals(param.mediaType);
-  }
-
-  @VisibleForTesting
-  static Intent createIntentForOculusApp(VRDeepLinkParam param) {
-    Intent intent = new Intent();
-    intent.setAction(Intent.ACTION_VIEW);
-    intent.addCategory(Intent.CATEGORY_DEFAULT);
-    String packageName = OCULUS_CINEMA_PACKAGE_NAME;
-    String mediaTypePath = URI_MEDIA_TYPE_VIDEO;
-    if (MediaType.PHOTO.equals(param.mediaType)) {
-      packageName = OCULUS_PHOTO_PACKAGE_NAME;
-      mediaTypePath = URI_MEDIA_TYPE_PHOTO;
-    }
-    intent.setPackage(packageName);
-    Uri.Builder builder = new Uri.Builder();
-    builder.scheme(URI_SCHEME_OCULUS)
-            .authority(mediaTypePath)
-            .appendPath(URI_MEDIA_SOURCE_FB)
-            .appendPath(param.mediaFbId);
-    intent.setData(builder.build());
-    return intent;
-  }
-
-  @VisibleForTesting
-  static Intent createIntentForFacebookApp(VRDeepLinkParam param) {
-    Intent intent = new Intent();
-    intent.setAction(Intent.ACTION_VIEW);
-    intent.addCategory(Intent.CATEGORY_DEFAULT);
-    intent.addCategory(Intent.CATEGORY_BROWSABLE);
-    Uri.Builder builder = new Uri.Builder();
-    builder.scheme(URI_SCHEME_HTTPS)
-            .authority(URI_FB_AUTHORITY)
-            .appendPath(param.mediaFbId);
-    intent.setData(builder.build());
-    return intent;
-  }
-
-  private static boolean isStringNullOrEmpty(String input) {
-    return input == null || input == "";
-  }
 }
